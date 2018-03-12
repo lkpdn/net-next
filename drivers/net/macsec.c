@@ -426,6 +426,8 @@ static sci_t macsec_frame_sci(struct macsec_eth_header *hdr, bool sci_present)
 	if (sci_present)
 		memcpy(&sci, hdr->secure_channel_id,
 		       sizeof(hdr->secure_channel_id));
+	else if (!!(hdr->tci_an & MACSEC_TCI_SCB))
+		sci = make_sci(hdr->eth.h_source, MACSEC_PORT_SCB);
 	else
 		sci = make_sci(hdr->eth.h_source, MACSEC_PORT_ES);
 
