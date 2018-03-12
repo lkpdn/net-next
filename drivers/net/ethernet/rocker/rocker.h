@@ -122,6 +122,18 @@ struct rocker_world_ops {
 				 const struct switchdev_obj_port_vlan *vlan);
 	int (*port_obj_vlan_del)(struct rocker_port *rocker_port,
 				 const struct switchdev_obj_port_vlan *vlan);
+	int (*port_obj_secy_txsc_add)(struct rocker_port *rocker_port,
+				      const struct switchdev_obj_port_secy_txsc *txsc);
+	int (*port_obj_secy_txsc_del)(struct rocker_port *rocker_port,
+				      const struct switchdev_obj_port_secy_txsc *txsc);
+	int (*port_obj_secy_rxsc_add)(struct rocker_port *rocker_port,
+				      const struct switchdev_obj_port_secy_rxsc *rxsc);
+	int (*port_obj_secy_rxsc_del)(struct rocker_port *rocker_port,
+				      const struct switchdev_obj_port_secy_rxsc *rxsc);
+	int (*port_obj_secy_sa_add)(struct rocker_port *rocker_port,
+				    const struct switchdev_obj_port_secy_sa *sa);
+	int (*port_obj_secy_sa_del)(struct rocker_port *rocker_port,
+				    const struct switchdev_obj_port_secy_sa *sa);
 	int (*port_obj_fdb_add)(struct rocker_port *rocker_port,
 				u16 vid, const unsigned char *addr);
 	int (*port_obj_fdb_del)(struct rocker_port *rocker_port,
@@ -145,5 +157,7 @@ struct rocker_world_ops {
 };
 
 extern struct rocker_world_ops rocker_ofdpa_ops;
+
+extern struct rocker_world_ops rocker_secy_ops;
 
 #endif
