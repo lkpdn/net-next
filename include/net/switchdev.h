@@ -77,6 +77,10 @@ enum switchdev_obj_id {
 	SWITCHDEV_OBJ_ID_PORT_VLAN,
 	SWITCHDEV_OBJ_ID_PORT_MDB,
 	SWITCHDEV_OBJ_ID_HOST_MDB,
+	SWITCHDEV_OBJ_ID_PORT_SECY_TXSC,
+	SWITCHDEV_OBJ_ID_PORT_SECY_TXSA,
+	SWITCHDEV_OBJ_ID_PORT_SECY_RXSC,
+	SWITCHDEV_OBJ_ID_PORT_SECY_RXSA,
 };
 
 struct switchdev_obj {
@@ -107,6 +111,42 @@ struct switchdev_obj_port_mdb {
 
 #define SWITCHDEV_OBJ_PORT_MDB(obj) \
 	container_of(obj, struct switchdev_obj_port_mdb, obj)
+
+/* SWITCHDEV_OBJ_ID_PORT_SECY_TXSC */
+struct switchdev_obj_port_secy_txsc {
+	struct switchdev_obj obj;
+	bool active;
+	u64 sci;
+};
+
+#define SWITCHDEV_OBJ_PORT_SECY_TXSC(obj) \
+	container_of(obj, struct switchdev_obj_port_secy_txsc, obj)
+
+/* SWITCHDEV_OBJ_ID_PORT_SECY_RXSC */
+struct switchdev_obj_port_secy_rxsc {
+	struct switchdev_obj obj;
+	bool active;
+	u64 tx_sci;
+	u64 sci;
+};
+
+#define SWITCHDEV_OBJ_PORT_SECY_RXSC(obj) \
+	container_of(obj, struct switchdev_obj_port_secy_rxsc, obj)
+
+struct switchdev_obj_port_secy_sa {
+	struct switchdev_obj obj;
+	bool active;
+	u64 sci;
+	u32 pn;
+	u8 an:2;
+	u8 pad:6;
+	u16 sak_len;
+	char *sak;
+};
+
+#define SWITCHDEV_OBJ_PORT_SECY_SA(obj) \
+	container_of(obj, struct switchdev_obj_port_secy_sa, obj)
+
 
 void switchdev_trans_item_enqueue(struct switchdev_trans *trans,
 				  void *data, void (*destructor)(void const *),
