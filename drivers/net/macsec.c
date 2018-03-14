@@ -19,6 +19,7 @@
 #include <linux/refcount.h>
 #include <net/genetlink.h>
 #include <net/sock.h>
+#include <net/switchdev.h>
 #include <net/gro_cells.h>
 
 #include <uapi/linux/if_macsec.h>
@@ -1306,6 +1307,88 @@ nosci:
 	rcu_read_unlock();
 	*pskb = skb;
 	return RX_HANDLER_PASS;
+}
+
+static int macsec_switchdev_sa(struct net_device *dev, u64 sci, u32 pn,
+			       u8 an, u16 sak_len, char *sak, bool is_tx,
+			       bool adding)
+{
+	struct macsec_dev *macsec = macsec_priv(dev);
+	struct switchdev_obj_port_secy_sa sw_sa = {
+		.obj = {
+			.id = is_tx ? SWITCHDEV_OBJ_ID_PORT_SECY_TXSA :
+				      SWITCHDEV_OBJ_ID_PORT_SECY_RXSA,
+		},
+		.active = true,
+		.sci = sci,
+		.pn = pn,
+		.an = an,
+		.sak_len = sak_len,
+		.sak = sak_len ? sak : 0,
+	};
+	int err;
+
+	if (adding) {
+		err = switchdev_port_obj_add(macsec->real_dev, &sw_sa.obj);
+	} else {
+		err = switchdev_port_obj_del(macsec->real_dev, &sw_sa.obj);
+	}
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
+}
+
+static int macsec_switchdev_txsc(struct net_device *dev, u64 sci,
+				 bool adding)
+{
+	struct macsec_dev *macsec = macsec_priv(dev);
+	struct switchdev_obj_port_secy_txsc sc = {
+		.obj = {
+			.id = SWITCHDEV_OBJ_ID_PORT_SECY_TXSC,
+		},
+		.active = true,
+		.sci = sci,
+	};
+	int err;
+
+	if (adding) {
+		err = switchdev_port_obj_add(macsec->real_dev, &sc.obj);
+	} else {
+		err = switchdev_port_obj_del(macsec->real_dev, &sc.obj);
+	}
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
+}
+
+static int macsec_switchdev_rxsc(struct net_device *dev, u64 tx_sci, u64 sci,
+				 bool adding)
+{
+	struct macsec_dev *macsec = macsec_priv(dev);
+	struct switchdev_obj_port_secy_rxsc sc = {
+		.obj = {
+			.id = SWITCHDEV_OBJ_ID_PORT_SECY_RXSC,
+		},
+		.active = true,
+		.tx_sci = tx_sci,
+		.sci = sci,
+	};
+	int err;
+
+	if (adding) {
+		err = switchdev_port_obj_add(macsec->real_dev, &sc.obj);
+	} else {
+		err = switchdev_port_obj_del(macsec->real_dev, &sc.obj);
+	}
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
 }
 
 static struct crypto_aead *macsec_alloc_tfm(char *key, int key_len, int icv_len)
