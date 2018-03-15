@@ -1,6 +1,6 @@
 /*
- * drivers/net/ethernet/rocker/rocker_pac.c - Rocker switch SecY
- *					      implementation
+ * drivers/net/ethernet/rocker/rocker_secy.c - Rocker switch SecY support
+ *
  * Copyright (c) 2018 lkpdn <den@klaipeden.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,214 +20,329 @@
 #include "rocker.h"
 #include "rocker_tlv.h"
 
-struct secy {
+/* No need to hold IEEE 802.1X SecY states as those are fully
+ * maintained by the upper MACsec driver except that they don't
+ * distinguish Virtual Ports. As far as SCI is identified when
+ * each switchdev API is called, rocker device driver can remain
+ * stateless, being just a THIN command/event channel. HW device,
+ * as represented by QEMU rocker device, demultiplexes to each
+ * Virtual Ports, or multiplexes to deliver to rocker_ports here.
+ */
+struct secy_ieee8021x {
 	struct rocker *rocker;
 };
 
-struct secy_port {
-	struct secy *secy;
+/* SecY Multiplexer, facing media access method-specific functions. */
+struct secy_mux {
+	struct secy_ieee8021x *secy_ieee8021x;
 	struct rocker_port *rocker_port;
-	struct net_device *dev;
 };
+
+/**********************************
+ * Rocker commands
+ **********************************/
+struct sc_cmd {
+	u64 sci;
+	u64 tx_sci;
+	bool is_tx;
+	bool is_adding;
+};
+
+struct sa_cmd {
+	u64 sci;
+	u8 an;
+	u32 pn;
+	bool is_adding;
+};
+
+static int secy_cmd_sc(const struct rocker_port *rocker_port,
+		       struct rocker_desc_info *desc_info,
+		       void *priv)
+{
+	struct sc_cmd *sc_cmd = priv;
+
+	u32 cmd;
+	struct rocker_tlv *cmd_info;
+
+	if (sc_cmd->is_tx) {
+		if (sc_cmd->is_adding)
+			cmd = ROCKER_TLV_CMD_TYPE_SECY_ADD_TX_SC;
+		else
+			cmd = ROCKER_TLV_CMD_TYPE_SECY_DEL_TX_SC;
+	} else {
+		if (sc_cmd->is_adding)
+			cmd = ROCKER_TLV_CMD_TYPE_SECY_ADD_RX_SC;
+		else
+			cmd = ROCKER_TLV_CMD_TYPE_SECY_DEL_RX_SC;
+	}
+	if (rocker_tlv_put_u32(desc_info, ROCKER_TLV_CMD_TYPE, cmd))
+		return -EMSGSIZE;
+
+	cmd_info = rocker_tlv_nest_start(desc_info, ROCKER_TLV_CMD_INFO);
+	if (!cmd_info)
+		return -EMSGSIZE;
+
+	if (rocker_tlv_put_u32(desc_info, ROCKER_TLV_SECY_PPORT,
+			       rocker_port->pport))
+		return -EMSGSIZE;
+	if (rocker_tlv_put_u64(desc_info, ROCKER_TLV_SECY_SCI, sc_cmd->sci))
+		return -EMSGSIZE;
+
+	if (sc_cmd->is_tx &&
+	    rocker_tlv_put_u8(desc_info, ROCKER_TLV_SECY_TX, 1))
+		return -EMSGSIZE;
+	if (!sc_cmd->is_tx &&
+	    rocker_tlv_put_u64(desc_info, ROCKER_TLV_SECY_TX_SCI,
+						 sc_cmd->tx_sci))
+		return -EMSGSIZE;
+
+	rocker_tlv_nest_end(desc_info, cmd_info);
+
+	return 0;
+}
+
+static int secy_cmd_sa(const struct rocker_port *rocker_port,
+		       struct rocker_desc_info *desc_info,
+		       void *priv)
+{
+	struct sa_cmd *sa_cmd = priv;
+
+	u32 cmd;
+	struct rocker_tlv *cmd_info;
+
+	if (sa_cmd->is_adding)
+		cmd = ROCKER_TLV_CMD_TYPE_SECY_ADD_TX_SA;
+	else
+		cmd = ROCKER_TLV_CMD_TYPE_SECY_DEL_TX_SA;
+
+	if (rocker_tlv_put_u32(desc_info, ROCKER_TLV_CMD_TYPE, cmd))
+		return -EMSGSIZE;
+
+	cmd_info = rocker_tlv_nest_start(desc_info, ROCKER_TLV_CMD_INFO);
+	if (!cmd_info)
+		return -EMSGSIZE;
+
+	if (rocker_tlv_put_u64(desc_info, ROCKER_TLV_SECY_SCI, sa_cmd->sci))
+		return -EMSGSIZE;
+
+	if (rocker_tlv_put_u64(desc_info, ROCKER_TLV_SECY_AN, sa_cmd->an))
+		return -EMSGSIZE;
+
+	if (rocker_tlv_put_u64(desc_info, ROCKER_TLV_SECY_PN, sa_cmd->pn))
+		return -EMSGSIZE;
+
+	rocker_tlv_nest_end(desc_info, cmd_info);
+
+	return 0;
+}
+
+static int secy_mux_txsc_add(struct secy_mux *mux, u64 sci) {
+	struct sc_cmd cmd = {
+		.sci = sci,
+		.is_tx = true,
+		.is_adding = true,
+	};
+	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_sc, &cmd,
+			       NULL, NULL);
+}
+
+static int secy_mux_txsc_del(struct secy_mux *mux, u64 sci) {
+	struct sc_cmd cmd = {
+		.sci = sci,
+		.is_tx = true,
+		.is_adding = false
+	};
+	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_sc, &cmd,
+			       NULL, NULL);
+}
+
+static int secy_mux_rxsc_add(struct secy_mux *mux, u64 sci, u64 tx_sci) {
+	struct sc_cmd cmd = {
+		.sci = sci,
+		.tx_sci = tx_sci,
+		.is_tx = false,
+		.is_adding = true,
+	};
+	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_sc, &cmd,
+			       NULL, NULL);
+}
+
+static int secy_mux_rxsc_del(struct secy_mux *mux, u64 sci) {
+	struct sc_cmd cmd = {
+		.sci = sci,
+		.is_tx = false,
+		.is_adding = false,
+	};
+	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_sc, &cmd,
+			       NULL, NULL);
+}
+
+static int secy_mux_sa_add(struct secy_mux *mux, u64 sci, u8 an, u32 pn) {
+	struct sa_cmd cmd = {
+		.sci = sci,
+		.an = an,
+		.pn = pn,
+		.is_adding = true,
+	};
+	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_sa, &cmd,
+			       NULL, NULL);
+}
+
+static int secy_mux_sa_del(struct secy_mux *mux, u64 sci, u8 an, u32 pn) {
+	struct sa_cmd cmd = {
+		.sci = sci,
+		.an = an,
+		.pn = pn,
+		.is_adding = false,
+	};
+	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_sa, &cmd,
+			       NULL, NULL);
+}
 
 /**********************************
  * Rocker world ops implementation
  **********************************/
 
-static int secy_init(struct rocker *rocker)
+static int secy_ieee8021x_init(struct rocker *rocker)
+{
+	struct secy_ieee8021x *secy_ieee8021x = rocker->wpriv;
+	secy_ieee8021x->rocker = rocker;
+	return 0;
+}
+
+static void secy_ieee8021x_fini(struct rocker *rocker)
+{
+}
+
+static int secy_mux_pre_init(struct rocker_port *rocker_port)
+{
+	struct secy_mux *secy_mux = rocker_port->wpriv;
+
+	secy_mux->secy_ieee8021x = rocker_port->rocker->wpriv;
+	secy_mux->rocker_port = rocker_port;
+	return 0;
+}
+
+static int secy_mux_init(struct rocker_port *rocker_port)
 {
 	return 0;
 }
 
-static void secy_fini(struct rocker *rocker)
+static void secy_mux_fini(struct rocker_port *rocker_port)
 {
-	return;
 }
 
-static int secy_port_pre_init(struct rocker_port *rocker_port)
+static int secy_mux_open(struct rocker_port *rocker_port)
 {
+	/* No Uncontrolled Port must have not been opened until some SecY
+	 * instance is born. */
 	return 0;
 }
 
-static int secy_port_init(struct rocker_port *rocker_port)
+static void secy_mux_stop(struct rocker_port *rocker_port)
 {
+}
+
+static int secy_mux_obj_txsc_add(
+		struct rocker_port *rocker_port,
+		const struct switchdev_obj_port_secy_txsc *txsc)
+{
+	int err;
+	struct secy_mux *mux = rocker_port->wpriv;
+
+	err = secy_mux_txsc_add(mux, txsc->sci);
+	if (err)
+		return err;
+
 	return 0;
 }
 
-static void secy_port_fini(struct rocker_port *rocker_port)
+static int secy_mux_obj_txsc_del(
+		struct rocker_port *rocker_port,
+		const struct switchdev_obj_port_secy_txsc *txsc)
 {
+	int err;
+	struct secy_mux *mux = rocker_port->wpriv;
+
+	err = secy_mux_txsc_del(mux, txsc->sci);
+	if (err)
+		return err;
+
 	return 0;
 }
 
-static int secy_port_open(struct rocker_port *rocker_port)
+static int secy_mux_obj_rxsc_add(
+		struct rocker_port *rocker_port,
+		const struct switchdev_obj_port_secy_rxsc *rxsc)
 {
+	int err;
+	struct secy_mux *mux = rocker_port->wpriv;
+
+	err = secy_mux_rxsc_add(mux, rxsc->sci, rxsc->tx_sci);
+	if (err)
+		return err;
+
 	return 0;
 }
 
-static void secy_port_stop(struct rocker_port *rocker_port)
+static int secy_mux_obj_rxsc_del(
+		struct rocker_port *rocker_port,
+		const struct switchdev_obj_port_secy_rxsc *rxsc)
 {
-	return NULL;
-}
+	int err;
+	struct secy_mux *mux = rocker_port->wpriv;
 
-static int secy_port_attr_stp_state_set(struct rocker_port *rocker_port,
-					u8 state)
-{
+	err = secy_mux_rxsc_del(mux, rxsc->sci);
+	if (err)
+		return err;
+
 	return 0;
 }
 
-static int secy_port_attr_bridge_flags_set(struct rocker_port *rocker_port,
-					   unsigned long brport_flags,
-					   struct switchdev_trans *trans)
+static int secy_mux_obj_sa_add(
+		struct rocker_port *rocker_port,
+		const struct switchdev_obj_port_secy_sa *sa)
 {
+	int err;
+	struct secy_mux *mux = rocker_port->wpriv;
+
+	err = secy_mux_sa_add(mux, sa->sci, sa->an, sa->pn);
+	if (err)
+		return err;
+
 	return 0;
 }
 
-static int
-secy_port_attr_bridge_flags_get(const struct rocker_port *rocker_port,
-				unsigned long *p_brport_flags)
+static int secy_mux_obj_sa_del(
+		struct rocker_port *rocker_port,
+		const struct switchdev_obj_port_secy_sa *sa)
 {
+	int err;
+	struct secy_mux *mux = rocker_port->wpriv;
+
+	err = secy_mux_sa_del(mux, sa->sci, sa->an, sa->pn);
+	if (err)
+		return err;
+
 	return 0;
-}
-
-static int
-secy_port_attr_bridge_flags_support_get(const struct rocker_port *
-					rocker_port,
-					unsigned long *
-					p_brport_flags_support)
-{
-	return 0;
-}
-
-static int
-secy_port_attr_bridge_ageing_time_set(struct rocker_port *rocker_port,
-				      u32 ageing_time,
-				      struct switchdev_trans *trans)
-{
-	return 0;
-}
-
-static int secy_port_obj_vlan_add(struct rocker_port *rocker_port,
-				  const struct switchdev_obj_port_vlan *vlan)
-{
-	return 0;
-}
-
-static int secy_port_obj_vlan_del(struct rocker_port *rocker_port,
-				  const struct switchdev_obj_port_vlan *vlan)
-{
-	return 0;
-}
-
-static int secy_port_obj_fdb_add(struct rocker_port *rocker_port,
-				 u16 vid, const unsigned char *addr)
-{
-	return 0;
-}
-
-static int secy_port_obj_fdb_del(struct rocker_port *rocker_port,
-				 u16 vid, const unsigned char *addr)
-{
-	return 0;
-}
-
-static int secy_port_bridge_join(struct secy_port *secy_port,
-				 struct net_device *bridge)
-{
-	return 0;
-}
-
-static int secy_port_bridge_leave(struct secy_port *secy_port)
-{
-	return 0;
-}
-
-static int secy_port_ovs_changed(struct secy_port *secy_port,
-				 struct net_device *master)
-{
-	return 0;
-}
-
-static int secy_port_master_linked(struct rocker_port *rocker_port,
-				   struct net_device *master)
-{
-	return 0;
-}
-
-static int secy_port_master_unlinked(struct rocker_port *rocker_port,
-				     struct net_device *master)
-{
-	return 0;
-}
-
-static int secy_port_neigh_update(struct rocker_port *rocker_port,
-				  struct neighbour *n)
-{
-	return 0;
-}
-
-static int secy_port_neigh_destroy(struct rocker_port *rocker_port,
-				   struct neighbour *n)
-{
-	return 0;
-}
-
-static int secy_port_ev_mac_vlan_seen(struct rocker_port *rocker_port,
-				      const unsigned char *addr,
-				      __be16 vlan_id)
-{
-	return 0;
-}
-
-static struct secy_port *secy_port_dev_lower_find(struct net_device *dev,
-						  struct rocker *rocker)
-{
-	return NULL;
-}
-
-static int secy_fib4_add(struct rocker *rocker,
-			 const struct fib_entry_notifier_info *fen_info)
-{
-	return 0;
-}
-
-static int secy_fib4_del(struct rocker *rocker,
-			 const struct fib_entry_notifier_info *fen_info)
-{
-	return 0;
-}
-
-static void secy_fib4_abort(struct rocker *rocker)
-{
-	return;
 }
 
 struct rocker_world_ops rocker_secy_ops = {
 	.kind = "SecY",
-	.priv_size = sizeof(struct secy),
-	.port_priv_size = sizeof(struct secy_port),
+	.priv_size = sizeof(struct secy_ieee8021x),
+	.port_priv_size = sizeof(struct secy_mux),
 	.mode = ROCKER_PORT_MODE_SECY,
-	.init = secy_init,
-	.fini = secy_fini,
-	.port_pre_init = secy_port_pre_init,
-	.port_init = secy_port_init,
-	.port_fini = secy_port_fini,
-	.port_open = secy_port_open,
-	.port_stop = secy_port_stop,
-	.port_attr_stp_state_set = secy_port_attr_stp_state_set,
-	.port_attr_bridge_flags_set = secy_port_attr_bridge_flags_set,
-	.port_attr_bridge_flags_get = secy_port_attr_bridge_flags_get,
-	.port_attr_bridge_flags_support_get = secy_port_attr_bridge_flags_support_get,
-	.port_attr_bridge_ageing_time_set = secy_port_attr_bridge_ageing_time_set,
-	.port_obj_vlan_add = secy_port_obj_vlan_add,
-	.port_obj_vlan_del = secy_port_obj_vlan_del,
-	.port_obj_fdb_add = secy_port_obj_fdb_add,
-	.port_obj_fdb_del = secy_port_obj_fdb_del,
-	.port_master_linked = secy_port_master_linked,
-	.port_master_unlinked = secy_port_master_unlinked,
-	.port_neigh_update = secy_port_neigh_update,
-	.port_neigh_destroy = secy_port_neigh_destroy,
-	.port_ev_mac_vlan_seen = secy_port_ev_mac_vlan_seen,
-	.fib4_add = secy_fib4_add,
-	.fib4_del = secy_fib4_del,
-	.fib4_abort = secy_fib4_abort,
+	.init = secy_ieee8021x_init,
+	.fini = secy_ieee8021x_fini,
+	.port_pre_init = secy_mux_pre_init,
+	.port_init = secy_mux_init,
+	.port_fini = secy_mux_fini,
+	.port_open = secy_mux_open,
+	.port_stop = secy_mux_stop,
+	.port_obj_secy_txsc_add = secy_mux_obj_txsc_add,
+	.port_obj_secy_txsc_del = secy_mux_obj_txsc_del,
+	.port_obj_secy_rxsc_add = secy_mux_obj_rxsc_add,
+	.port_obj_secy_rxsc_del = secy_mux_obj_rxsc_del,
+	.port_obj_secy_sa_add = secy_mux_obj_sa_add,
+	.port_obj_secy_sa_del = secy_mux_obj_sa_del,
 };

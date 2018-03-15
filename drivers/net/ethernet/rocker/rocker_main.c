@@ -1653,6 +1653,91 @@ rocker_world_port_obj_vlan_del(struct rocker_port *rocker_port,
 }
 
 static int
+rocker_world_port_obj_secy_txsc_add(
+			struct rocker_port *rocker_port,
+			const struct switchdev_obj_port_secy_txsc *txsc,
+			struct switchdev_trans *trans)
+{
+	struct rocker_world_ops *wops = rocker_port->rocker->wops;
+
+	if (!wops->port_obj_secy_txsc_add)
+		return -EOPNOTSUPP;
+
+	if (switchdev_trans_ph_prepare(trans))
+		return 0;
+
+	return wops->port_obj_secy_txsc_add(rocker_port, txsc);
+}
+
+static int
+rocker_world_port_obj_secy_txsc_del(
+			struct rocker_port *rocker_port,
+			const struct switchdev_obj_port_secy_txsc *txsc)
+{
+	struct rocker_world_ops *wops = rocker_port->rocker->wops;
+
+	if (!wops->port_obj_vlan_del)
+		return -EOPNOTSUPP;
+	return wops->port_obj_secy_txsc_del(rocker_port, txsc);
+}
+
+static int
+rocker_world_port_obj_secy_rxsc_add(
+			struct rocker_port *rocker_port,
+			const struct switchdev_obj_port_secy_rxsc *rxsc,
+			struct switchdev_trans *trans)
+{
+	struct rocker_world_ops *wops = rocker_port->rocker->wops;
+
+	if (!wops->port_obj_secy_rxsc_add)
+		return -EOPNOTSUPP;
+
+	if (switchdev_trans_ph_prepare(trans))
+		return 0;
+
+	return wops->port_obj_secy_rxsc_add(rocker_port, rxsc);
+}
+
+static int
+rocker_world_port_obj_secy_rxsc_del(
+			struct rocker_port *rocker_port,
+			const struct switchdev_obj_port_secy_rxsc *rxsc)
+{
+	struct rocker_world_ops *wops = rocker_port->rocker->wops;
+
+	if (!wops->port_obj_secy_rxsc_del)
+		return -EOPNOTSUPP;
+	return wops->port_obj_secy_rxsc_del(rocker_port, rxsc);
+}
+
+static int
+rocker_world_port_obj_secy_sa_add(struct rocker_port *rocker_port,
+				  const struct switchdev_obj_port_secy_sa *sa,
+				  struct switchdev_trans *trans)
+{
+	struct rocker_world_ops *wops = rocker_port->rocker->wops;
+
+	if (!wops->port_obj_secy_sa_add)
+		return -EOPNOTSUPP;
+
+	if (switchdev_trans_ph_prepare(trans))
+		return 0;
+
+	return wops->port_obj_secy_sa_add(rocker_port, sa);
+}
+
+static int
+rocker_world_port_obj_secy_sa_del(struct rocker_port *rocker_port,
+				  const struct switchdev_obj_port_secy_sa *sa)
+{
+	struct rocker_world_ops *wops = rocker_port->rocker->wops;
+
+	if (!wops->port_obj_secy_sa_del)
+		return -EOPNOTSUPP;
+	return wops->port_obj_secy_sa_del(rocker_port, sa);
+}
+
+static int
 rocker_world_port_fdb_add(struct rocker_port *rocker_port,
 			  struct switchdev_notifier_fdb_info *info)
 {
@@ -2105,9 +2190,29 @@ static int rocker_port_obj_add(struct net_device *dev,
 
 	switch (obj->id) {
 	case SWITCHDEV_OBJ_ID_PORT_VLAN:
-		err = rocker_world_port_obj_vlan_add(rocker_port,
-						     SWITCHDEV_OBJ_PORT_VLAN(obj),
-						     trans);
+		err = rocker_world_port_obj_vlan_add(
+					rocker_port,
+					SWITCHDEV_OBJ_PORT_VLAN(obj),
+					trans);
+		break;
+	case SWITCHDEV_OBJ_ID_PORT_SECY_TXSC:
+		err = rocker_world_port_obj_secy_txsc_add(
+					rocker_port,
+					SWITCHDEV_OBJ_PORT_SECY_TXSC(obj),
+					trans);
+		break;
+	case SWITCHDEV_OBJ_ID_PORT_SECY_RXSC:
+		err = rocker_world_port_obj_secy_rxsc_add(
+					rocker_port,
+					SWITCHDEV_OBJ_PORT_SECY_RXSC(obj),
+					trans);
+		break;
+	case SWITCHDEV_OBJ_ID_PORT_SECY_TXSA:
+	case SWITCHDEV_OBJ_ID_PORT_SECY_RXSA:
+		err = rocker_world_port_obj_secy_sa_add(
+					rocker_port,
+					SWITCHDEV_OBJ_PORT_SECY_SA(obj),
+					trans);
 		break;
 	default:
 		err = -EOPNOTSUPP;
@@ -2127,6 +2232,22 @@ static int rocker_port_obj_del(struct net_device *dev,
 	case SWITCHDEV_OBJ_ID_PORT_VLAN:
 		err = rocker_world_port_obj_vlan_del(rocker_port,
 						     SWITCHDEV_OBJ_PORT_VLAN(obj));
+		break;
+	case SWITCHDEV_OBJ_ID_PORT_SECY_TXSC:
+		err = rocker_world_port_obj_secy_txsc_del(
+					rocker_port,
+					SWITCHDEV_OBJ_PORT_SECY_TXSC(obj));
+		break;
+	case SWITCHDEV_OBJ_ID_PORT_SECY_RXSC:
+		err = rocker_world_port_obj_secy_rxsc_del(
+					rocker_port,
+					SWITCHDEV_OBJ_PORT_SECY_RXSC(obj));
+		break;
+	case SWITCHDEV_OBJ_ID_PORT_SECY_TXSA:
+	case SWITCHDEV_OBJ_ID_PORT_SECY_RXSA:
+		err = rocker_world_port_obj_secy_sa_del(
+					rocker_port,
+					SWITCHDEV_OBJ_PORT_SECY_SA(obj));
 		break;
 	default:
 		err = -EOPNOTSUPP;
