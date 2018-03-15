@@ -1814,6 +1814,10 @@ static int macsec_add_rxsa(struct sk_buff *skb, struct genl_info *info)
 	rx_sa->sc = rx_sc;
 	rcu_assign_pointer(rx_sc->sa[assoc_num], rx_sa);
 
+	macsec_switchdev_sa(dev, rx_sc->sci, rx_sa->next_pn, assoc_num,
+			    secy->key_len, nla_data(tb_sa[MACSEC_SA_ATTR_KEY]),
+			    false, true);
+
 	rtnl_unlock();
 
 	return 0;
@@ -1866,6 +1870,8 @@ static int macsec_add_rxsc(struct sk_buff *skb, struct genl_info *info)
 
 	if (tb_rxsc[MACSEC_RXSC_ATTR_ACTIVE])
 		rx_sc->active = !!nla_get_u8(tb_rxsc[MACSEC_RXSC_ATTR_ACTIVE]);
+
+	macsec_switchdev_rxsc(dev, macsec_priv(dev)->secy.sci, sci, 1);
 
 	rtnl_unlock();
 
@@ -1970,6 +1976,10 @@ static int macsec_add_txsa(struct sk_buff *skb, struct genl_info *info)
 
 	rcu_assign_pointer(tx_sc->sa[assoc_num], tx_sa);
 
+	macsec_switchdev_sa(dev, secy->sci, tx_sa->next_pn, assoc_num,
+			    secy->key_len, nla_data(tb_sa[MACSEC_SA_ATTR_KEY]),
+			    false, true);
+
 	rtnl_unlock();
 
 	return 0;
@@ -2011,6 +2021,9 @@ static int macsec_del_rxsa(struct sk_buff *skb, struct genl_info *info)
 	RCU_INIT_POINTER(rx_sc->sa[assoc_num], NULL);
 	clear_rx_sa(rx_sa);
 
+	macsec_switchdev_sa(dev, rx_sc->sci, rx_sa->next_pn, assoc_num, 0, NULL,
+			    false, false);
+
 	rtnl_unlock();
 
 	return 0;
@@ -2051,6 +2064,9 @@ static int macsec_del_rxsc(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	free_rx_sc(rx_sc);
+
+	macsec_switchdev_rxsc(dev, secy->sci, sci, 0);
+
 	rtnl_unlock();
 
 	return 0;
@@ -2087,6 +2103,9 @@ static int macsec_del_txsa(struct sk_buff *skb, struct genl_info *info)
 
 	RCU_INIT_POINTER(tx_sc->sa[assoc_num], NULL);
 	clear_tx_sa(tx_sa);
+
+	macsec_switchdev_sa(dev, secy->sci, tx_sa->next_pn, assoc_num, 0, NULL,
+			    true, false);
 
 	rtnl_unlock();
 
@@ -2153,6 +2172,9 @@ static int macsec_upd_txsa(struct sk_buff *skb, struct genl_info *info)
 	if (assoc_num == tx_sc->encoding_sa)
 		secy->operational = tx_sa->active;
 
+	macsec_switchdev_sa(dev, secy->sci, tx_sa->next_pn, assoc_num, 0, NULL,
+			    true, true);
+
 	rtnl_unlock();
 
 	return 0;
@@ -2198,7 +2220,11 @@ static int macsec_upd_rxsa(struct sk_buff *skb, struct genl_info *info)
 	if (tb_sa[MACSEC_SA_ATTR_ACTIVE])
 		rx_sa->active = nla_get_u8(tb_sa[MACSEC_SA_ATTR_ACTIVE]);
 
+	macsec_switchdev_sa(dev, rx_sc->sci, rx_sa->next_pn, assoc_num, 0, NULL,
+			    false, true);
+
 	rtnl_unlock();
+
 	return 0;
 }
 
@@ -3196,6 +3222,9 @@ static void macsec_del_dev(struct macsec_dev *macsec)
 	while (macsec->secy.rx_sc) {
 		struct macsec_rx_sc *rx_sc = rtnl_dereference(macsec->secy.rx_sc);
 
+		macsec_switchdev_rxsc(macsec->secy.netdev, macsec->secy.sci,
+				      rx_sc->sci, 0);
+
 		rcu_assign_pointer(macsec->secy.rx_sc, rx_sc->next);
 		free_rx_sc(rx_sc);
 	}
@@ -3204,6 +3233,10 @@ static void macsec_del_dev(struct macsec_dev *macsec)
 		struct macsec_tx_sa *sa = rtnl_dereference(macsec->secy.tx_sc.sa[i]);
 
 		if (sa) {
+			macsec_switchdev_sa(macsec->secy.netdev, macsec->secy.sci,
+					    macsec->secy.tx_sc.sa[i]->next_pn, i,
+					    0, NULL, 1, 0);
+
 			RCU_INIT_POINTER(macsec->secy.tx_sc.sa[i], NULL);
 			clear_tx_sa(sa);
 		}
@@ -3315,6 +3348,8 @@ static int macsec_add_dev(struct net_device *dev, sci_t sci, u8 icv_len)
 	secy->tx_sc.send_sci = DEFAULT_SEND_SCI;
 	secy->tx_sc.end_station = false;
 	secy->tx_sc.scb = false;
+
+	macsec_switchdev_txsc(dev, sci, 1);
 
 	return 0;
 }
