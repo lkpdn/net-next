@@ -1420,6 +1420,7 @@ int rocker_port_set_learning(struct rocker_port *rocker_port,
 
 static struct rocker_world_ops *rocker_world_ops[] = {
 	&rocker_ofdpa_ops,
+	&rocker_secy_ops,
 };
 
 #define ROCKER_WORLD_OPS_LEN ARRAY_SIZE(rocker_world_ops)
