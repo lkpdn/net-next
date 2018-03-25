@@ -15,6 +15,7 @@
 #include <linux/inetdevice.h>
 #include <linux/if_vlan.h>
 #include <linux/if_bridge.h>
+#include <linux/if_macsec.h>
 #include <net/switchdev.h>
 
 #include "rocker.h"
@@ -53,6 +54,8 @@ struct sa_cmd {
 	u8 an;
 	u32 pn;
 	bool is_adding;
+	u16 sak_len;
+	char *sak;
 };
 
 static int secy_cmd_sc(const struct rocker_port *rocker_port,
@@ -131,6 +134,23 @@ static int secy_cmd_sa(const struct rocker_port *rocker_port,
 	if (rocker_tlv_put_u64(desc_info, ROCKER_TLV_SECY_PN, sa_cmd->pn))
 		return -EMSGSIZE;
 
+	if (sa_cmd->sak_len * 8 == MACSEC_MAX_KEY_LEN) {
+		u128 *sak = (u128 *)sa_cmd->sak;
+		if (rocker_tlv_put_u128(desc_info, ROCKER_TLV_SECY_SAK, *sak))
+			return -EMSGSIZE;
+		if (rocker_tlv_put_u16(desc_info, ROCKER_TLV_SECY_SAK_LEN,
+				       sa_cmd->sak_len))
+			return -EMSGSIZE;
+	} else if (!sa_cmd->sak_len) {
+		if (rocker_tlv_put_u128(desc_info, ROCKER_TLV_SECY_SAK,
+					(u128){0, 0}))
+			return -EMSGSIZE;
+		if (rocker_tlv_put_u16(desc_info, ROCKER_TLV_SECY_SAK_LEN, 0))
+			return -EMSGSIZE;
+	} else { /* currently macsec driver supports GCM-AES-128 only */
+		return -ENOTSUPP;
+	}
+
 	rocker_tlv_nest_end(desc_info, cmd_info);
 
 	return 0;
@@ -177,11 +197,14 @@ static int secy_mux_rxsc_del(struct secy_mux *mux, u64 sci) {
 			       NULL, NULL);
 }
 
-static int secy_mux_sa_add(struct secy_mux *mux, u64 sci, u8 an, u32 pn) {
+static int secy_mux_sa_add(struct secy_mux *mux, u64 sci, u8 an, u32 pn,
+			   u16 sak_len, char *sak) {
 	struct sa_cmd cmd = {
 		.sci = sci,
 		.an = an,
 		.pn = pn,
+		.sak_len = sak_len,
+		.sak = sak,
 		.is_adding = true,
 	};
 	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_sa, &cmd,
@@ -306,7 +329,8 @@ static int secy_mux_obj_sa_add(
 	int err;
 	struct secy_mux *mux = rocker_port->wpriv;
 
-	err = secy_mux_sa_add(mux, sa->sci, sa->an, sa->pn);
+	err = secy_mux_sa_add(mux, sa->sci, sa->an, sa->pn,
+			      sa->sak_len, sa->sak);
 	if (err)
 		return err;
 

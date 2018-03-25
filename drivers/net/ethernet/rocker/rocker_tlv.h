@@ -16,6 +16,7 @@
 
 #include "rocker_hw.h"
 #include "rocker.h"
+#include <crypto/b128ops.h>
 
 #define ROCKER_TLV_ALIGNTO 8U
 #define ROCKER_TLV_ALIGN(len) \
@@ -185,6 +186,31 @@ rocker_tlv_put_u64(struct rocker_desc_info *desc_info, int attrtype, u64 value)
 	u64 tmp = value;
 
 	return rocker_tlv_put(desc_info, attrtype, sizeof(u64), &tmp);
+}
+
+static inline int
+rocker_tlv_put_be64(struct rocker_desc_info *desc_info, int attrtype, __be64 value)
+{
+	__be64 tmp = value;
+
+	return rocker_tlv_put(desc_info, attrtype, sizeof(__be64), &tmp);
+}
+
+/* crypto relevant use, so use crypto/b128ops.h */
+static inline int
+rocker_tlv_put_u128(struct rocker_desc_info *desc_info, int attrtype, u128 value)
+{
+	u128 tmp = value;
+
+	return rocker_tlv_put(desc_info, attrtype, sizeof(u128), &tmp);
+}
+
+static inline int
+rocker_tlv_put_be128(struct rocker_desc_info *desc_info, int attrtype, be128 value)
+{
+	be128 tmp = value;
+
+	return rocker_tlv_put(desc_info, attrtype, sizeof(be128), &tmp);
 }
 
 static inline struct rocker_tlv *
