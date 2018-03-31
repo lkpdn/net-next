@@ -189,6 +189,8 @@ enum switchdev_notifier_type {
 
 struct switchdev_notifier_info {
 	struct net_device *dev;
+	u64 port_id;
+	bool port_id_active;
 };
 
 struct switchdev_notifier_fdb_info {
