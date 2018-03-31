@@ -37,7 +37,11 @@ struct secy_ieee8021x {
 struct secy_mux {
 	struct secy_ieee8021x *secy_ieee8021x;
 	struct rocker_port *rocker_port;
+	struct net_device *dev;
 };
+
+#define SECY_OP_FLAG_REMOVE	BIT(0)
+#define SECY_OP_FLAG_LEARNED	BIT(1)
 
 /**********************************
  * Rocker commands
@@ -57,6 +61,51 @@ struct sa_cmd {
 	u16 sak_len;
 	char *sak;
 };
+
+static int secy_cmd_fdb(const struct rocker_port *rocker_port,
+			struct rocker_desc_info *desc_info,
+			void *priv)
+{
+	u32 cmd;
+	struct rocker_tlv *cmd_info;
+
+	cmd = ROCKER_TLV_CMD_TYPE_SECY_FDB_ADD;
+
+	if (rocker_tlv_put_u32(desc_info, ROCKER_TLV_CMD_TYPE, cmd))
+		return -EMSGSIZE;
+
+	cmd_info = rocker_tlv_nest_start(desc_info, ROCKER_TLV_CMD_INFO);
+	if (!cmd_info)
+		return -EMSGSIZE;
+
+	if (rocker_tlv_put_u32(desc_info, ROCKER_TLV_SECY_PPORT,
+			       rocker_port->pport))
+		return -EMSGSIZE;
+
+	rocker_tlv_nest_end(desc_info, cmd_info);
+
+	return 0;
+}
+
+static int secy_mux_fdb_add(struct secy_mux *mux)
+{
+	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_fdb,
+			       NULL, NULL, NULL);
+}
+
+static int secy_mux_fdb_del(struct secy_mux *mux)
+{
+	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_fdb,
+			       NULL, NULL, NULL);
+}
+
+static int secy_mux_fdb_do(struct secy_mux *mux, int flags)
+{
+	if (flags & SECY_OP_FLAG_REMOVE)
+		return secy_mux_fdb_del(mux);
+	else
+		return secy_mux_fdb_add(mux);
+}
 
 static int secy_cmd_sc(const struct rocker_port *rocker_port,
 		       struct rocker_desc_info *desc_info,
@@ -223,6 +272,72 @@ static int secy_mux_sa_del(struct secy_mux *mux, u64 sci, u8 an, u32 pn) {
 }
 
 /**********************************
+ * FDB, VLAN and neigh
+ **********************************/
+struct secy_fdb_learn_work {
+	struct work_struct work;
+	struct secy_mux *mux;
+	int flags;
+	u8 addr[ETH_ALEN];
+	u16 vid;
+};
+
+static void secy_mux_fdb_learn_work(struct work_struct *work)
+{
+	const struct secy_fdb_learn_work *lw =
+		container_of(work, struct secy_fdb_learn_work, work);
+	bool removing = (lw->flags & SECY_OP_FLAG_REMOVE);
+	bool learned = (lw->flags & SECY_OP_FLAG_LEARNED);
+	struct switchdev_notifier_fdb_info info;
+
+	info.addr = lw->addr;
+	info.vid = lw->vid;
+
+	rtnl_lock();
+	if (learned && removing)
+		call_switchdev_notifiers(SWITCHDEV_FDB_DEL_TO_BRIDGE,
+					 lw->mux->dev, &info.info);
+	else
+		call_switchdev_notifiers(SWITCHDEV_FDB_ADD_TO_BRIDGE,
+					 lw->mux->dev, &info.info);
+	rtnl_unlock();
+
+	kfree(work);
+}
+
+static int secy_mux_fdb_learn(struct secy_mux *mux, int flags, const u8 *addr,
+			      __be16 vlan_id)
+{
+	struct secy_fdb_learn_work *lw;
+	int err;
+
+	err = secy_mux_fdb_do(mux, flags);
+	if (err)
+		return err;
+
+	lw = kzalloc(sizeof(*lw), GFP_ATOMIC);
+	if (!lw)
+		return -ENOMEM;
+
+	INIT_WORK(&lw->work, secy_mux_fdb_learn_work);
+
+	lw->mux = mux;
+	lw->flags = flags;
+	ether_addr_copy(lw->addr, addr);
+	lw->vid = vlan_id;
+
+	schedule_work(&lw->work);
+	return 0;
+}
+
+static int secy_mux_fdb(struct secy_mux *mux, const unsigned char *addr,
+			__be16 vlan_id, int flags)
+{
+	/* */
+	return secy_mux_fdb_learn(mux, flags, addr, vlan_id);
+}
+
+/**********************************
  * Rocker world ops implementation
  **********************************/
 
@@ -243,6 +358,7 @@ static int secy_mux_pre_init(struct rocker_port *rocker_port)
 
 	secy_mux->secy_ieee8021x = rocker_port->rocker->wpriv;
 	secy_mux->rocker_port = rocker_port;
+	secy_mux->dev = rocker_port->dev;
 	return 0;
 }
 
@@ -264,6 +380,25 @@ static int secy_mux_open(struct rocker_port *rocker_port)
 
 static void secy_mux_stop(struct rocker_port *rocker_port)
 {
+}
+
+static int secy_mux_obj_fdb_add(struct rocker_port *rocker_port, u16 vid,
+			    const unsigned char *addr)
+{
+	struct secy_mux *mux = rocker_port->wpriv;
+	__be16 vlan_id = htons(vid);
+
+	return secy_mux_fdb(mux, addr, vlan_id, 0);
+}
+
+static int secy_mux_obj_fdb_del(struct rocker_port *rocker_port, u16 vid,
+			    const unsigned char *addr)
+{
+	struct secy_mux *mux = rocker_port->wpriv;
+	__be16 vlan_id = htons(vid);
+	int flags = SECY_OP_FLAG_REMOVE;
+
+	return secy_mux_fdb(mux, addr, vlan_id, flags);
 }
 
 static int secy_mux_obj_txsc_add(
@@ -363,6 +498,8 @@ struct rocker_world_ops rocker_secy_ops = {
 	.port_fini = secy_mux_fini,
 	.port_open = secy_mux_open,
 	.port_stop = secy_mux_stop,
+	.port_obj_fdb_add = secy_mux_obj_fdb_add,
+	.port_obj_fdb_del = secy_mux_obj_fdb_del,
 	.port_obj_secy_txsc_add = secy_mux_obj_txsc_add,
 	.port_obj_secy_txsc_del = secy_mux_obj_txsc_del,
 	.port_obj_secy_rxsc_add = secy_mux_obj_rxsc_add,
