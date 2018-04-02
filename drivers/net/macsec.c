@@ -390,6 +390,8 @@ static struct macsec_cb *macsec_skb_cb(struct sk_buff *skb)
 	return (struct macsec_cb *)skb->cb;
 }
 
+#define MACSEC_PORT_SHIFT 48
+#define MACSEC_PORT_MASK (0xffff)
 #define MACSEC_PORT_ES (htons(0x0001))
 #define MACSEC_PORT_SCB (0x0000)
 #define MACSEC_UNDEF_SCI ((__force sci_t)0xffffffffffffffffULL)
@@ -408,6 +410,11 @@ static bool send_sci(const struct macsec_secy *secy)
 
 	return tx_sc->send_sci ||
 		(secy->n_rx_sc > 1 && !tx_sc->end_station && !tx_sc->scb);
+}
+
+static __be16 port_id_from_sci(sci_t sci)
+{
+	return (sci >> MACSEC_PORT_SHIFT) & MACSEC_PORT_MASK;
 }
 
 static sci_t make_sci(u8 *addr, __be16 port)
@@ -3606,6 +3613,29 @@ static bool is_macsec_master(struct net_device *dev)
 static int macsec_switchdev_event(struct notifier_block *this,
 				  unsigned long event, void *ptr)
 {
+	struct macsec_secy *secy;
+	struct net_device *dev, *real_dev;
+	struct switchdev_notifier_fdb_info *fdb_info = ptr;
+	u16 port_id;
+
+	dev = switchdev_notifier_info_to_dev(ptr);
+
+	if (!netif_is_macsec(dev))
+		return NOTIFY_DONE;
+
+	real_dev = macsec_priv(dev)->real_dev;
+	secy = &macsec_priv(dev)->secy;
+	port_id = ntohs(port_id_from_sci(secy->sci));
+
+	switch (event) {
+	case SWITCHDEV_FDB_ADD_TO_DEVICE:
+	case SWITCHDEV_FDB_DEL_TO_DEVICE:
+		fdb_info->info.port_id_active = true;
+		fdb_info->info.port_id = port_id;
+		call_switchdev_notifiers(event, real_dev, &fdb_info->info);
+		break;
+	}
+
 	return NOTIFY_DONE;
 }
 
