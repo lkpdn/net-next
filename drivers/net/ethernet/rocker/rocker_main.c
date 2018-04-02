@@ -1761,6 +1761,38 @@ rocker_world_port_fdb_del(struct rocker_port *rocker_port,
 	return wops->port_obj_fdb_del(rocker_port, info->vid, info->addr);
 }
 
+static int
+rocker_world_vport_fdb_add(struct rocker_port *rocker_port,
+			   struct switchdev_notifier_fdb_info *info)
+{
+	struct rocker_world_ops *wops = rocker_port->rocker->wops;
+
+	if (!wops->port_obj_fdb_add)
+		return -EOPNOTSUPP;
+
+	if (!info->info.port_id_active)
+		return -EINVAL;
+
+	return wops->port_obj_vport_fdb_add(rocker_port, info->info.port_id,
+					    info->vid, info->addr);
+}
+
+static int
+rocker_world_vport_fdb_del(struct rocker_port *rocker_port,
+			   struct switchdev_notifier_fdb_info *info)
+{
+	struct rocker_world_ops *wops = rocker_port->rocker->wops;
+
+	if (!wops->port_obj_fdb_del)
+		return -EOPNOTSUPP;
+
+	if (!info->info.port_id_active)
+		return -EINVAL;
+
+	return wops->port_obj_vport_fdb_del(rocker_port, info->info.port_id,
+					    info->vid, info->addr);
+}
+
 static int rocker_world_port_master_linked(struct rocker_port *rocker_port,
 					   struct net_device *master)
 {
