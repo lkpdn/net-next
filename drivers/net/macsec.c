@@ -3603,6 +3603,12 @@ static bool is_macsec_master(struct net_device *dev)
 	return rcu_access_pointer(dev->rx_handler) == macsec_handle_frame;
 }
 
+static int macsec_switchdev_event(struct notifier_block *this,
+				  unsigned long event, void *ptr)
+{
+	return NOTIFY_DONE;
+}
+
 static int macsec_notify(struct notifier_block *this, unsigned long event,
 			 void *ptr)
 {
@@ -3647,6 +3653,10 @@ static int macsec_notify(struct notifier_block *this, unsigned long event,
 	return NOTIFY_OK;
 }
 
+static struct notifier_block macsec_switchdev_notifier = {
+	.notifier_call = macsec_switchdev_event,
+};
+
 static struct notifier_block macsec_notifier = {
 	.notifier_call = macsec_notify,
 };
@@ -3657,6 +3667,10 @@ static int __init macsec_init(void)
 
 	pr_info("MACsec IEEE 802.1AE\n");
 	err = register_netdevice_notifier(&macsec_notifier);
+	if (err)
+		return err;
+
+	err = register_switchdev_notifier(&macsec_switchdev_notifier);
 	if (err)
 		return err;
 
