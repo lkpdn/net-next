@@ -3607,7 +3607,7 @@ static int macsec_switchdev_event(struct notifier_block *this,
 				  unsigned long event, void *ptr)
 {
 	struct macsec_secy *secy;
-	struct net_device *dev, *real_dev;
+	struct net_device *dev, *real_dev, *br_dev;
 	struct switchdev_notifier_fdb_info *fdb_info = ptr;
 
 	dev = switchdev_notifier_info_to_dev(ptr);
@@ -3615,12 +3615,21 @@ static int macsec_switchdev_event(struct notifier_block *this,
 	if (!netif_is_macsec(dev))
 		return NOTIFY_DONE;
 
-	real_dev = macsec_priv(dev)->real_dev;
-	secy = &macsec_priv(dev)->secy;
-
 	switch (event) {
+	case SWITCHDEV_FDB_ADD_TO_BRIDGE:
+	case SWITCHDEV_FDB_DEL_TO_BRIDGE:
+		if (!(dev->priv_flags & IFF_BRIDGE_PORT))
+			break;
+
+		br_dev = netdev_master_upper_dev_get(dev);
+		fdb_info->info.port_id_active = false;
+		call_switchdev_notifiers(event, br_dev, &fdb_info->info);
+		break;
 	case SWITCHDEV_FDB_ADD_TO_DEVICE:
 	case SWITCHDEV_FDB_DEL_TO_DEVICE:
+		real_dev = macsec_priv(dev)->real_dev;
+		secy = &macsec_priv(dev)->secy;
+
 		fdb_info->info.port_id_active = true;
 		fdb_info->info.port_id = secy->sci;
 		call_switchdev_notifiers(event, real_dev, &fdb_info->info);
