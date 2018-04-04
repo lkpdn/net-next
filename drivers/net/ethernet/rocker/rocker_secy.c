@@ -63,10 +63,19 @@ struct sa_cmd {
 	char *sak;
 };
 
+struct fdb_entry {
+	const u8 *addr;
+	u16 vlan_id;
+	u64 tx_sci;
+	bool no_secy;
+};
+
 static int secy_cmd_fdb(const struct rocker_port *rocker_port,
 			struct rocker_desc_info *desc_info,
 			void *priv)
 {
+	struct fdb_entry *entry = priv;
+
 	u32 cmd;
 	struct rocker_tlv *cmd_info;
 
@@ -83,29 +92,58 @@ static int secy_cmd_fdb(const struct rocker_port *rocker_port,
 			       rocker_port->pport))
 		return -EMSGSIZE;
 
+	if (entry->addr) {
+		u64 addr = 0;
+		memcpy(&addr, entry->addr, ETH_ALEN);
+		if (rocker_tlv_put_u64(
+			desc_info, ROCKER_TLV_SECY_DST_ADDR, addr))
+			return -EMSGSIZE;
+	}
+
+	if (entry->vlan_id && rocker_tlv_put_be16(
+			desc_info, ROCKER_TLV_SECY_VLAN_ID, entry->vlan_id))
+		return -EMSGSIZE;
+
+	if (!entry->no_secy && entry->tx_sci && rocker_tlv_put_u64(
+			desc_info, ROCKER_TLV_SECY_TX_SCI, entry->tx_sci))
+		return -EMSGSIZE;
+
 	rocker_tlv_nest_end(desc_info, cmd_info);
 
 	return 0;
 }
 
-static int secy_fdb_add(struct secy_mux *mux, int flags)
+static int secy_fdb_add(struct secy_mux *mux, struct fdb_entry *entry,
+			int flags)
 {
 	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_fdb,
-			       NULL, NULL, NULL);
+			       entry, NULL, NULL);
 }
 
-static int secy_fdb_del(struct secy_mux *mux, int flags)
+static int secy_fdb_del(struct secy_mux *mux, struct fdb_entry *entry,
+			int flags)
 {
 	return rocker_cmd_exec(mux->rocker_port, false, secy_cmd_fdb,
-			       NULL, NULL, NULL);
+			       entry, NULL, NULL);
 }
 
-static int secy_fdb_do(struct secy_mux *mux, u64 port_id, int flags)
+static int secy_fdb_do(struct secy_mux *mux, const u8 *addr, __be16 vlan_id,
+		       u64 port_id, int flags)
 {
+	struct fdb_entry entry = {
+		.tx_sci = port_id,
+		.addr = addr,
+		.vlan_id = ntohs(vlan_id),
+		.no_secy = 1,
+	};
+
+	if (flags & SECY_OP_FLAG_ON_VPORT)
+		entry.no_secy = 0;
+
 	if (flags & SECY_OP_FLAG_REMOVE)
-		return secy_fdb_del(mux, flags);
+		return secy_fdb_del(mux, &entry, flags);
 	else
-		return secy_fdb_add(mux, flags);
+		return secy_fdb_add(mux, &entry, flags);
 }
 
 static int secy_cmd_sc(const struct rocker_port *rocker_port,
@@ -318,7 +356,7 @@ static int secy_fdb_learn(struct secy_mux *mux, int flags, const u8 *addr,
 	struct secy_fdb_learn_work *lw;
 	int err;
 
-	err = secy_fdb_do(mux, port_id, flags);
+	err = secy_fdb_do(mux, addr, vlan_id, port_id, flags);
 	if (err)
 		return err;
 

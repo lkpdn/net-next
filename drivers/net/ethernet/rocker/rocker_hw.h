@@ -471,15 +471,17 @@ enum rocker_of_dpa_overlay_type {
 /* cmd info nested for SECY msgs */
 enum {
 	ROCKER_TLV_SECY_UNSPEC,
-	ROCKER_TLV_SECY_TX,      /* u8 */
-	ROCKER_TLV_SECY_SCI,     /* u64 */
-	ROCKER_TLV_SECY_TX_SCI,  /* u64 */
-	ROCKER_TLV_SECY_AN,      /* u8 */
-	ROCKER_TLV_SECY_PN,      /* u32 */
+	ROCKER_TLV_SECY_TX,         /* u8 */
+	ROCKER_TLV_SECY_SCI,        /* u64 */
+	ROCKER_TLV_SECY_TX_SCI,     /* u64 */
+	ROCKER_TLV_SECY_AN,         /* u8 */
+	ROCKER_TLV_SECY_PN,         /* u32 */
 	ROCKER_TLV_SECY_KN,
-	ROCKER_TLV_SECY_SAK,
-	ROCKER_TLV_SECY_SAK_LEN,
-	ROCKER_TLV_SECY_PPORT,
+	ROCKER_TLV_SECY_SAK,        /* u128 */
+	ROCKER_TLV_SECY_SAK_LEN,    /* u16 */
+	ROCKER_TLV_SECY_PPORT,      /* u32 */
+	ROCKER_TLV_SECY_DST_ADDR,   /* u64 */
+	ROCKER_TLV_SECY_VLAN_ID,    /* be16 */
 	__ROCKER_TLV_SECY_MAX,
 	ROCKER_TLV_SECY_MAX = __ROCKER_TLV_SECY_MAX - 1,
 };
