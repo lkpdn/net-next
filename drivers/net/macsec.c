@@ -3702,21 +3702,23 @@ static int __init macsec_init(void)
 
 	err = register_switchdev_notifier(&macsec_switchdev_notifier);
 	if (err)
-		return err;
+		goto rollback_notifier;
 
 	err = rtnl_link_register(&macsec_link_ops);
 	if (err)
-		goto notifier;
+		goto rollback_switchdev_notifier;
 
 	err = genl_register_family(&macsec_fam);
 	if (err)
-		goto rtnl;
+		goto rollback_rtnl;
 
 	return 0;
 
-rtnl:
+rollback_rtnl:
 	rtnl_link_unregister(&macsec_link_ops);
-notifier:
+rollback_switchdev_notifier:
+	unregister_switchdev_notifier(&macsec_switchdev_notifier);
+rollback_notifier:
 	unregister_netdevice_notifier(&macsec_notifier);
 	return err;
 }
@@ -3725,6 +3727,7 @@ static void __exit macsec_exit(void)
 {
 	genl_unregister_family(&macsec_fam);
 	rtnl_link_unregister(&macsec_link_ops);
+	unregister_switchdev_notifier(&macsec_switchdev_notifier);
 	unregister_netdevice_notifier(&macsec_notifier);
 	rcu_barrier();
 }
