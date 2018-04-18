@@ -1540,6 +1540,10 @@ static void clear_tx_sa(struct macsec_tx_sa *tx_sa)
 	macsec_txsa_put(tx_sa);
 }
 
+static void macsec_flush_keys(struct macsec_secy *secy)
+{
+}
+
 static struct genl_family macsec_fam;
 
 static struct net_device *get_dev_from_nl(struct net *net,
@@ -3145,6 +3149,7 @@ static int macsec_changelink_common(struct net_device *dev,
 {
 	struct macsec_secy *secy;
 	struct macsec_tx_sc *tx_sc;
+	bool key_len_changed;
 
 	secy = &macsec_priv(dev)->secy;
 	tx_sc = &secy->tx_sc;
@@ -3186,14 +3191,22 @@ static int macsec_changelink_common(struct net_device *dev,
 		switch (nla_get_u64(data[IFLA_MACSEC_CIPHER_SUITE])) {
 		case MACSEC_CIPHER_ID_GCM_AES_128:
 		case MACSEC_DEFAULT_CIPHER_ID:
-			secy->key_len = MACSEC_GCM_AES_128_SAK_LEN;
+			if (secy->key_len != MACSEC_GCM_AES_128_SAK_LEN) {
+				secy->key_len = MACSEC_GCM_AES_128_SAK_LEN;
+				key_len_changed = true;
+			}
 			break;
 		case MACSEC_CIPHER_ID_GCM_AES_256:
-			secy->key_len = MACSEC_GCM_AES_256_SAK_LEN;
+			if (secy->key_len != MACSEC_GCM_AES_256_SAK_LEN) {
+				secy->key_len = MACSEC_GCM_AES_256_SAK_LEN;
+				key_len_changed = true;
+			}
 			break;
 		default:
 			return -EINVAL;
 		}
+		if (key_len_changed)
+			macsec_flush_keys(secy);
 	}
 
 	return 0;
