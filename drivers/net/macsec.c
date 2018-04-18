@@ -1542,6 +1542,31 @@ static void clear_tx_sa(struct macsec_tx_sa *tx_sa)
 
 static void macsec_flush_keys(struct macsec_secy *secy)
 {
+	struct macsec_rx_sc *rx_sc, __rcu **rx_scp;
+	struct macsec_tx_sa *tx_sa;
+	int i;
+
+	rtnl_lock();
+	for (i = 0; i < MACSEC_NUM_AN; i++) {
+		tx_sa = rtnl_dereference(secy->tx_sc.sa[i]);
+
+		if (tx_sa) {
+			RCU_INIT_POINTER(secy->tx_sc.sa[i], NULL);
+			clear_tx_sa(tx_sa);
+		}
+	}
+	for (rx_scp = &secy->rx_sc, rx_sc = rtnl_dereference(*rx_scp);
+	     rx_sc;
+	     rx_scp = &rx_sc->next, rx_sc = rtnl_dereference(*rx_scp)) {
+		for (i = 0; i < MACSEC_NUM_AN; i++) {
+			struct macsec_rx_sa *sa = rtnl_dereference(rx_sc->sa[i]);
+
+			RCU_INIT_POINTER(rx_sc->sa[i], NULL);
+			if (sa)
+				clear_rx_sa(sa);
+		}
+	}
+	rtnl_unlock();
 }
 
 static struct genl_family macsec_fam;
