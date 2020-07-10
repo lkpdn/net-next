@@ -1786,6 +1786,29 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= sched_rr_handler,
 	},
+#ifdef CONFIG_SCHED_CLASS_MICROQ
+	{
+		.procname	= "sched_microq_period_ns",
+		.data		= &sysctl_sched_microq_period,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sched_microq_proc_handler,
+	},
+	{
+		.procname	= "sched_microq_runtime_ns",
+		.data		= &sysctl_sched_microq_runtime,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sched_microq_proc_handler,
+	},
+	{
+		.procname	= "sched_microq_timeslice",
+		.data		= &sched_microq_timeslice,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+#endif
 #ifdef CONFIG_UCLAMP_TASK
 	{
 		.procname	= "sched_util_clamp_min",

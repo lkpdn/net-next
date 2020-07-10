@@ -609,6 +609,31 @@ void print_dl_rq(struct seq_file *m, int cpu, struct dl_rq *dl_rq)
 #undef PU
 }
 
+#ifdef CONFIG_SCHED_CLASS_MICROQ
+void print_microq_rq(struct seq_file *m, int cpu, struct microq_rq *microq_rq)
+{
+	SEQ_printf(m, "\nmicroq_rq[%d]:\n", cpu);
+
+#define P(x) \
+	SEQ_printf(m, "  .%-30s: %Ld\n", #x, (long long)(microq_rq->x))
+#define PN(x) \
+	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", #x, SPLIT_NS(microq_rq->x))
+
+	P(microq_nr_running);
+	P(microq_throttled);
+	PN(microq_time);
+	PN(microq_target_time);
+	P(microq_runtime);
+	P(microq_period);
+	P(last_push_failed);
+	PN(quanta_start);
+	P(delta_exec_uncharged);
+
+#undef PN
+#undef P
+}
+#endif
+
 static void print_cpu(struct seq_file *m, int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
@@ -667,6 +692,9 @@ do {									\
 	print_cfs_stats(m, cpu);
 	print_rt_stats(m, cpu);
 	print_dl_stats(m, cpu);
+#ifdef CONFIG_SCHED_CLASS_MICROQ
+	print_microq_stats(m, cpu);
+#endif
 
 	print_rq(m, rq, cpu);
 	spin_unlock_irqrestore(&sched_debug_lock, flags);

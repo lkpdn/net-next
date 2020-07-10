@@ -1,0 +1,72 @@
+Micro Quanta Scheduling
+
+Micro quanta (microq) is a lightweight scheduling class for microsecond level
+scheduling intervals. It can simultaneously provide low scheduling latency for
+real time tasks while causing no starvation or excessive latency for normal
+tasks. It is a safe (avoiding many of the priority inversion problems etc.) and
+high performance way to share a cpu.
+
+Main characteristics:
+
+ - A sample configuration is one microq task configured to run with 16us
+runtime and 20us period. Most of the time the microq task won’t wait for more
+than 20 - 16 = 4us. kworker and ksoftirqd tasks under cfs can still get 4us
+every 20us.
+
+ - The scheduling policy between microq class and cfs class is weighted fair
+queuing with latency guarantees for microq.
+
+ - No priority among microq tasks. Multiple microq tasks on the same cpu will
+round robin at tick interval.
+
+ - The microq class is work conserving. If no other task is running on a cpu, a
+microq task can take all cpu cycles regardless of runtime/period bandwidth
+allocation.
+
+ - Simple push load balancing only.
+
+ - No cgroup support.
+
+ - Driven by per cpu hrtimers.
+
+There are similarities between microq and rt group scheduling or between microq
+and SCHED_DEADLINE. Below is a quick comparison:
+
+ - rt group scheduling uses both tick and a global hrtimer for bandwidth
+control, which doesn’t work well for below tick interval. If rt tasks are
+throttled on many cpus the global hrtimer becomes a bottleneck. SCHED_DEADLINE
+appears to have similar behaviors. microq uses per cpu hrtimers.
+
+ - microq is based on fair queuing (or somewhat equivalent to SCHED_DEADLINE
+with period == deadline), not fixed scheduling intervals. A blocked task can
+accumulate credit similar to cfs or SCHED_DEADLINE, but different from fixed
+intervals of rt group scheduling.
+
+ - No priority among microq threads.
+
+ - microq is work conserving. rt group scheduling has fixed bandwidth
+allocation.
+
+ - Compared to SCHED_DEADLINE, microq is a lightweight scheduling class with a
+very limited feature set, but also with less restrictions, e.g. no admission
+control or cpu affinity requirements.
+
+
+Usage and expected behaviors:
+
+microq bandwidth can be controlled with either global or per task bandwidth
+parameters. If none of the microq tasks on a cpu specifies the bandwidth
+parameters, global parameters take effect.
+
+When there are multiple microq tasks on a run queue, the bandwidth parameters
+of the task with shortest period takes effect. (Note runtime in effect is not
+the sum of microq tasks, it is exactly the runtime requested by one microq
+task.)
+
+When there are multiple microq tasks on the same cpu, they will round-robin at
+tick interval. The microq scheduling period is likely shorter than the tick
+interval, thus the scheduler can switch between one microq task and a cfs task
+several times before switching to another microq task. The scheduling latency
+of a microq tasks is well shielded from cfs tasks but not from another microq
+task. Cooperative multitasking might be an option for some applications if
+multiple microq tasks on the same cpu is needed.

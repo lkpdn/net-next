@@ -165,7 +165,23 @@ static inline int fair_policy(int policy)
 
 static inline int rt_policy(int policy)
 {
-	return policy == SCHED_FIFO || policy == SCHED_RR;
+	if (policy == SCHED_FIFO || policy == SCHED_RR || policy == SCHED_MICROQ)
+		return 1;
+	return 0;
+}
+
+static inline int rt_fiforr_policy(int policy)
+{
+	if (policy == SCHED_FIFO || policy == SCHED_RR)
+		return 1;
+	return 0;
+}
+
+static inline int microq_policy(int policy)
+{
+	if (policy == SCHED_MICROQ)
+		return 1;
+	return 0;
 }
 
 static inline int dl_policy(int policy)
@@ -186,6 +202,11 @@ static inline int task_has_idle_policy(struct task_struct *p)
 static inline int task_has_rt_policy(struct task_struct *p)
 {
 	return rt_policy(p->policy);
+}
+
+static inline int task_has_rt_fiforr_policy(struct task_struct *p)
+{
+	return rt_fiforr_policy(p->policy);
 }
 
 static inline int task_has_dl_policy(struct task_struct *p)
@@ -910,6 +931,9 @@ struct rq {
 	struct cfs_rq		cfs;
 	struct rt_rq		rt;
 	struct dl_rq		dl;
+#ifdef CONFIG_SCHED_CLASS_MICROQ
+	struct microq_rq	microq;
+#endif
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* list of leaf cfs_rq on this CPU: */
@@ -1824,6 +1848,7 @@ static inline void set_next_task(struct rq *rq, struct task_struct *next)
 
 extern const struct sched_class stop_sched_class;
 extern const struct sched_class dl_sched_class;
+extern const struct sched_class microq_sched_class;
 extern const struct sched_class rt_sched_class;
 extern const struct sched_class fair_sched_class;
 extern const struct sched_class idle_sched_class;
@@ -2231,6 +2256,11 @@ print_numa_stats(struct seq_file *m, int node, unsigned long tsf,
 extern void init_cfs_rq(struct cfs_rq *cfs_rq);
 extern void init_rt_rq(struct rt_rq *rt_rq);
 extern void init_dl_rq(struct dl_rq *dl_rq);
+
+#ifdef CONFIG_SCHED_CLASS_MICROQ
+extern void print_microq_stats(struct seq_file *m, int cpu);
+extern void init_microq_rq(struct microq_rq *microq_rq);
+#endif
 
 extern void cfs_bandwidth_usage_inc(void);
 extern void cfs_bandwidth_usage_dec(void);

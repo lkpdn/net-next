@@ -172,6 +172,11 @@ update_rt_rq_load_avg(u64 now, struct rq *rq, int running)
 	return 0;
 }
 
+int update_rt_rq_load_avg_ratio(u64 now, u64 contrib_ratio, struct rq *rq, int running)
+{
+	return 0;
+}
+
 static inline int
 update_dl_rq_load_avg(u64 now, struct rq *rq, int running)
 {

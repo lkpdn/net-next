@@ -574,6 +574,15 @@ struct sched_dl_entity {
 	struct hrtimer inactive_timer;
 };
 
+#ifdef CONFIG_SCHED_CLASS_MICROQ
+struct sched_microq_entity {
+	struct list_head run_list;
+	int sched_period;
+	int sched_runtime;
+	unsigned int time_slice;
+};
+#endif
+
 #ifdef CONFIG_UCLAMP_TASK
 /* Number of utilization clamp buckets (shorter alias) */
 #define UCLAMP_BUCKETS CONFIG_UCLAMP_BUCKETS_COUNT
@@ -685,6 +694,9 @@ struct task_struct {
 	const struct sched_class	*sched_class;
 	struct sched_entity		se;
 	struct sched_rt_entity		rt;
+#ifdef CONFIG_SCHED_CLASS_MICROQ
+	struct sched_microq_entity microq;
+#endif
 #ifdef CONFIG_CGROUP_SCHED
 	struct task_group		*sched_task_group;
 #endif

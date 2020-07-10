@@ -107,7 +107,7 @@ static u32 __accumulate_pelt_segments(u64 periods, u32 d1, u32 d3)
  *                     n=1
  */
 static __always_inline u32
-accumulate_sum(u64 delta, struct sched_avg *sa,
+accumulate_sum(u64 delta, u64 contrib_ratio, struct sched_avg *sa,
 	       unsigned long load, unsigned long runnable, int running)
 {
 	u32 contrib = (u32)delta; /* p == 0 -> delta < 1024 */
@@ -146,6 +146,7 @@ accumulate_sum(u64 delta, struct sched_avg *sa,
 	}
 	sa->period_contrib = delta;
 
+	contrib = contrib * contrib_ratio / SCHED_FIXEDPOINT_SCALE;
 	if (load)
 		sa->load_sum += load * contrib;
 	if (runnable)
@@ -185,7 +186,7 @@ accumulate_sum(u64 delta, struct sched_avg *sa,
  *            = u_0 + u_1*y + u_2*y^2 + ... [re-labeling u_i --> u_{i+1}]
  */
 static __always_inline int
-___update_load_sum(u64 now, struct sched_avg *sa,
+___update_load_sum_ratio(u64 now, u64 contrib_ratio, struct sched_avg *sa,
 		  unsigned long load, unsigned long runnable, int running)
 {
 	u64 delta;
@@ -231,10 +232,17 @@ ___update_load_sum(u64 now, struct sched_avg *sa,
 	 * Step 1: accumulate *_sum since last_update_time. If we haven't
 	 * crossed period boundaries, finish.
 	 */
-	if (!accumulate_sum(delta, sa, load, runnable, running))
+	if (!accumulate_sum(delta, contrib_ratio, sa, load, runnable, running))
 		return 0;
 
 	return 1;
+}
+
+static __always_inline int
+___update_load_sum(u64 now, struct sched_avg *sa,
+		   unsigned long load, unsigned long runnable, int running)
+{
+	return ___update_load_sum_ratio(now, SCHED_FIXEDPOINT_SCALE, sa, load, runnable, running);
 }
 
 /*
@@ -354,6 +362,21 @@ int __update_load_avg_cfs_rq(u64 now, struct cfs_rq *cfs_rq)
 int update_rt_rq_load_avg(u64 now, struct rq *rq, int running)
 {
 	if (___update_load_sum(now, &rq->avg_rt,
+				running,
+				running,
+				running)) {
+
+		___update_load_avg(&rq->avg_rt, 1);
+		trace_pelt_rt_tp(rq);
+		return 1;
+	}
+
+	return 0;
+}
+
+int update_rt_rq_load_avg_ratio(u64 now, u64 contrib_ratio, struct rq *rq, int running)
+{
+	if (___update_load_sum_ratio(now, contrib_ratio, &rq->avg_rt,
 				running,
 				running,
 				running)) {

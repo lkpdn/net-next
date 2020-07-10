@@ -2288,6 +2288,19 @@ config PADATA
 	depends on SMP
 	bool
 
+config SCHED_CLASS_MICROQ
+	bool "Micro Quanta scheduling class"
+	default y
+	help
+	  Micro quanta is a lightweight scheduling class designed for
+	  microsecond level scheduling intervals. It provides a more flexible
+	  way to share cores between highly latency sensitive tasks with other
+	  tasks - limiting the cpu share of latency sensitive tasks and
+	  maintaining low scheduling latency at the same time. The scheduling
+	  policy is similar to real-time group scheduling period and runtime.
+	  There is no group support but more frequent context switching
+	  is possible.
+
 config ASN1
 	tristate
 	help
